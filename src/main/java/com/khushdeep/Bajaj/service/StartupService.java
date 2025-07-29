@@ -1,6 +1,5 @@
 package com.khushdeep.Bajaj.service;
 
-
 import java.util.HashMap;
 import java.util.Map;
 
@@ -17,85 +16,71 @@ import jakarta.annotation.PostConstruct;
 
 @Service
 public class StartupService {
-
     @PostConstruct
-    public void doOnStartup() {
+    public void startup() {
         try {
-            // === USER: UPDATE THIS INFO! ===
-            String name = "John Doe";
-            String regNo = "REG12347";
-            String email = "john@example.com";
-            // ================================
+            
+            String name = "Khushdeep Sharma";
+            String regNo = "2210990509";
+            String email = "khushdeep509.be22@chitkara.edu.in";
 
-            // Prepare request to generate webhook
-            Map<String, Object> reqBody = new HashMap<>();
-            reqBody.put("name", name);
-            reqBody.put("regNo", regNo);
-            reqBody.put("email", email);
-
-            String url = "https://bfhldevapigw.healthrx.co.in/hiring/generateWebhook/JAVA";
+            // 1. Generate webhook and access token
             RestTemplate restTemplate = new RestTemplate();
+            String generateUrl = "https://bfhldevapigw.healthrx.co.in/hiring/generateWebhook/JAVA";
+
+            Map<String, Object> requestBody = new HashMap<>();
+            requestBody.put("name", name);
+            requestBody.put("regNo", regNo);
+            requestBody.put("email", email);
 
             HttpHeaders headers = new HttpHeaders();
             headers.setContentType(MediaType.APPLICATION_JSON);
+            HttpEntity<Map<String, Object>> entity = new HttpEntity<>(requestBody, headers);
 
-            HttpEntity<Map<String, Object>> entity = new HttpEntity<>(reqBody, headers);
+            ResponseEntity<WebhookResponse> response = restTemplate.postForEntity(generateUrl, entity, WebhookResponse.class);
 
-            ResponseEntity<WebhookResponse> resp =
-                    restTemplate.postForEntity(url, entity, WebhookResponse.class);
-
-            if (!resp.getStatusCode().is2xxSuccessful() || resp.getBody() == null) {
-                System.err.println("Failed to get webhook: " + resp.getStatusCode());
+            if (!response.getStatusCode().is2xxSuccessful() || response.getBody() == null) {
+                System.err.println("Failed to generate webhook: " + response.getStatusCode());
                 return;
             }
 
-            String webhookUrl = resp.getBody().getWebhook();
-            String accessToken = resp.getBody().getAccessToken();
+            String webhookUrl = response.getBody().getWebhook();
+            String accessToken = response.getBody().getAccessToken();
 
-            // Choose SQL by registration number (last 2 digits even/odd)
-            int lastTwo = Integer.parseInt(regNo.replaceAll("[^0-9]", "")
-                                                .substring(regNo.replaceAll("[^0-9]", "").length() - 2));
+            // 2. Decide SQL based on regNo (odd = Q1, even = Q2)
+            int lastTwo = Integer.parseInt(regNo.replaceAll("[^0-9]", "").substring(regNo.length() - 2));
+            String sqlQuery = (
+                lastTwo % 2 == 0
+                  ? // EVEN --> Q2 (provided for reference, not needed for you currently)
+                    "SELECT e1.EMP_ID, e1.FIRST_NAME, e1.LAST_NAME, d.DEPARTMENT_NAME, COUNT(e2.EMP_ID) AS YOUNGER_EMPLOYEES_COUNT " +
+                    "FROM EMPLOYEE e1 " +
+                    "JOIN DEPARTMENT d ON e1.DEPARTMENT = d.DEPARTMENT_ID " +
+                    "LEFT JOIN EMPLOYEE e2 ON e2.DEPARTMENT = e1.DEPARTMENT AND e2.DOB > e1.DOB " +
+                    "GROUP BY e1.EMP_ID, e1.FIRST_NAME, e1.LAST_NAME, d.DEPARTMENT_NAME " +
+                    "ORDER BY e1.EMP_ID DESC;"
+                  : // ODD --> Q1
+                    "SELECT p.AMOUNT AS SALARY, CONCAT(e.FIRST_NAME, ' ', e.LAST_NAME) AS NAME, " +
+                    "TIMESTAMPDIFF(YEAR, e.DOB, CURDATE()) AS AGE, d.DEPARTMENT_NAME " +
+                    "FROM PAYMENTS p " +
+                    "JOIN EMPLOYEE e ON e.EMP_ID = p.EMP_ID " +
+                    "JOIN DEPARTMENT d ON d.DEPARTMENT_ID = e.DEPARTMENT " +
+                    "WHERE DAY(p.PAYMENT_TIME) <> 1 " +
+                    "ORDER BY p.AMOUNT DESC LIMIT 1;"
+            );
 
-            String yourSqlQuery;
-            if (lastTwo % 2 == 0) {
-                // Even = Question 2
-                yourSqlQuery =
-                        "SELECT e1.EMP_ID, e1.FIRST_NAME, e1.LAST_NAME, d.DEPARTMENT_NAME, COUNT(e2.EMP_ID) AS YOUNGER_EMPLOYEES_COUNT "
-                      + "FROM EMPLOYEE e1 "
-                      + "JOIN DEPARTMENT d ON e1.DEPARTMENT = d.DEPARTMENT_ID "
-                      + "LEFT JOIN EMPLOYEE e2 "
-                      + "ON e2.DEPARTMENT = e1.DEPARTMENT "
-                      + "AND e2.DOB > e1.DOB "
-                      + "GROUP BY e1.EMP_ID, e1.FIRST_NAME, e1.LAST_NAME, d.DEPARTMENT_NAME "
-                      + "ORDER BY e1.EMP_ID DESC;";
-                System.out.println("Question 2 (Even) assigned! See 'SQL-Qwestion-2-JAVA.pdf'.");
-            } else {
-                // Odd = Question 1
-                yourSqlQuery =
-                        "SELECT p.AMOUNT AS SALARY, CONCAT(e.FIRST_NAME, ' ', e.LAST_NAME) AS NAME, "
-                      + "TIMESTAMPDIFF(YEAR, e.DOB, CURDATE()) AS AGE, d.DEPARTMENT_NAME "
-                      + "FROM PAYMENTS p "
-                      + "JOIN EMPLOYEE e ON e.EMP_ID = p.EMP_ID "
-                      + "JOIN DEPARTMENT d ON d.DEPARTMENT_ID = e.DEPARTMENT "
-                      + "WHERE DAY(p.PAYMENT_TIME) <> 1 "
-                      + "ORDER BY p.AMOUNT DESC "
-                      + "LIMIT 1;";
-                System.out.println("Question 1 (Odd) assigned! See 'SQL-Question-1-JAVA.pdf'.");
-            }
+            // 3. Send answer to the webhook, JWT as Bearer!
+            HttpHeaders answerHeaders = new HttpHeaders();
+            answerHeaders.setContentType(MediaType.APPLICATION_JSON);
+            answerHeaders.setBearerAuth(accessToken);
 
-            // Prepare JSON with the final SQL for submission
-            HttpHeaders subHeaders = new HttpHeaders();
-            subHeaders.setContentType(MediaType.APPLICATION_JSON);
-            subHeaders.setBearerAuth(accessToken);
+            Map<String, String> answerBody = Map.of("finalQuery", sqlQuery);
 
-            Map<String, String> solBody = Map.of("finalQuery", yourSqlQuery);
-            HttpEntity<Map<String, String>> subReq = new HttpEntity<>(solBody, subHeaders);
+            HttpEntity<Map<String, String>> answerEntity = new HttpEntity<>(answerBody, answerHeaders);
 
-            ResponseEntity<String> submitResp = restTemplate.postForEntity(webhookUrl, subReq, String.class);
+            ResponseEntity<String> submitResponse = restTemplate.postForEntity(webhookUrl, answerEntity, String.class);
 
-            System.out.println("Submission response: " + submitResp.getStatusCode());
-            System.out.println("Response body: " + submitResp.getBody());
-
+            System.out.println("Submission Response: " + submitResponse.getStatusCode());
+            System.out.println("Body: " + submitResponse.getBody());
         } catch (Exception ex) {
             ex.printStackTrace();
         }
