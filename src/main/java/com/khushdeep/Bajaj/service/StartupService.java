@@ -27,7 +27,7 @@ public class StartupService {
             String email = "john@example.com";
             // ================================
 
-            
+            // Prepare request to generate webhook
             Map<String, Object> reqBody = new HashMap<>();
             reqBody.put("name", name);
             reqBody.put("regNo", regNo);
